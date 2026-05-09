@@ -1,7 +1,8 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { Paginated } from './orders.service';
 
 export interface Customer {
   id?: number;
@@ -21,7 +22,10 @@ export class CustomersService {
   private api = environment.apiUrl;
   constructor(private http: HttpClient) {}
 
-  getAll(): Observable<Customer[]>               { return this.http.get<Customer[]>(`${this.api}/customers/`); }
+  getAll(page = 1, pageSize = 20, search = ''): Observable<Paginated<Customer>> {
+    const params = new HttpParams().set('page', page).set('page_size', pageSize).set('search', search);
+    return this.http.get<Paginated<Customer>>(`${this.api}/customers/`, { params });
+  }
   getById(id: number): Observable<Customer>      { return this.http.get<Customer>(`${this.api}/customers/${id}`); }
   create(c: Customer): Observable<Customer>      { return this.http.post<Customer>(`${this.api}/customers/`, c); }
   update(id: number, c: Partial<Customer>): Observable<Customer> {

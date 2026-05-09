@@ -129,7 +129,7 @@ export class PurchaseOrderFormComponent implements OnInit {
 
   ngOnInit() {
     this.supSvc.getSuppliers().subscribe({ next: (s) => this.suppliers = s });
-    this.prodSvc.getProducts().subscribe({ next: (p) => this.products = p });
+    this.prodSvc.getAllProducts().subscribe({ next: (p) => this.products = p });
     this.addLine();
   }
 

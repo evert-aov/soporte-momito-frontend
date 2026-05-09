@@ -1,8 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { InventoryService, InventoryRecord } from '../../core/services/inventory.service';
-import { ProductService, Product } from '../products/product.service';
+import { InventoryService, InventoryWithName } from '../../core/services/inventory.service';
 
 @Component({
   selector: 'app-inventory-list',
@@ -13,18 +12,33 @@ import { ProductService, Product } from '../products/product.service';
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-xl font-bold text-gray-900">Inventario</h1>
-          <p class="text-sm text-gray-500 mt-0.5">Stock actual por sucursal</p>
+          <p class="text-sm text-gray-500 mt-0.5">{{ total }} registros · Stock actual por sucursal</p>
         </div>
       </div>
 
       <!-- Low stock alert -->
-      <div *ngIf="lowStock.length > 0"
+      <div *ngIf="lowStockNames.length > 0"
            class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start gap-3">
         <span class="text-xl">⚠️</span>
         <div>
-          <p class="text-sm font-semibold text-yellow-800">Stock bajo en {{ lowStock.length }} productos</p>
-          <p class="text-xs text-yellow-700 mt-0.5">{{ lowStockIds }}</p>
+          <p class="text-sm font-semibold text-yellow-800">Stock bajo en {{ lowStockNames.length }} productos</p>
+          <p class="text-xs text-yellow-700 mt-0.5">{{ lowStockNames.join(', ') }}</p>
         </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-center gap-3">
+        <div class="relative flex-1 min-w-48">
+          <input type="text" [(ngModel)]="search" (ngModelChange)="onSearchChange()"
+            placeholder="Buscar por nombre de producto..."
+            class="w-full pl-4 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+        </div>
+        <button (click)="toggleLowStock()"
+          [class]="filterLowStock
+            ? 'inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-amber-100 text-amber-700 border border-amber-300'
+            : 'inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'">
+          ⚠️ Solo stock bajo
+        </button>
       </div>
 
       <div *ngIf="loading" class="bg-white rounded-xl border border-gray-200 p-12 text-center">
@@ -47,7 +61,7 @@ import { ProductService, Product } from '../products/product.service';
           <tbody class="divide-y divide-gray-100">
             <tr *ngFor="let item of inventory" class="hover:bg-gray-50 transition-colors">
               <td class="px-4 py-3">
-                <p class="font-medium text-gray-900">{{ productName(item.product_id) }}</p>
+                <p class="font-medium text-gray-900">{{ item.product_name }}</p>
                 <p class="text-xs text-gray-400 font-mono">{{ item.product_id }}</p>
               </td>
               <td class="px-4 py-3 text-gray-600">Sucursal {{ item.branch_id }}</td>
@@ -95,54 +109,123 @@ import { ProductService, Product } from '../products/product.service';
             </tr>
           </tbody>
         </table>
+
+        <!-- Pagination -->
+        <div class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+          <div class="flex items-center gap-2 text-sm text-gray-500">
+            <span>Filas:</span>
+            <select [(ngModel)]="pageSize" (ngModelChange)="onPageSizeChange()"
+              class="border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+              <option [ngValue]="10">10</option>
+              <option [ngValue]="20">20</option>
+              <option [ngValue]="50">50</option>
+            </select>
+            <span>de {{ total }}</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button (click)="goToPage(1)" [disabled]="page === 1"
+              class="px-2 py-1 rounded text-sm disabled:opacity-40 hover:bg-gray-200">«</button>
+            <button (click)="goToPage(page - 1)" [disabled]="page === 1"
+              class="px-2 py-1 rounded text-sm disabled:opacity-40 hover:bg-gray-200">‹</button>
+            <button *ngFor="let n of pageNums" (click)="goToPage(n)"
+              [class]="n === page
+                ? 'px-3 py-1 rounded text-sm bg-blue-600 text-white font-semibold'
+                : 'px-3 py-1 rounded text-sm hover:bg-gray-200 text-gray-700'">
+              {{ n }}
+            </button>
+            <button (click)="goToPage(page + 1)" [disabled]="page === totalPages"
+              class="px-2 py-1 rounded text-sm disabled:opacity-40 hover:bg-gray-200">›</button>
+            <button (click)="goToPage(totalPages)" [disabled]="page === totalPages"
+              class="px-2 py-1 rounded text-sm disabled:opacity-40 hover:bg-gray-200">»</button>
+          </div>
+        </div>
       </div>
     </div>
   `
 })
 export class InventoryListComponent implements OnInit {
-  inventory: InventoryRecord[] = [];
-  products: Product[] = [];
+  inventory: InventoryWithName[] = [];
+  lowStockNames: string[] = [];
   loading = false;
+  search = '';
+  filterLowStock = false;
+  page = 1;
+  pageSize = 20;
+  total = 0;
+  totalPages = 1;
   editingId: number | null = null;
   editQty = 0;
   editMinStock = 0;
 
-  get lowStock(): InventoryRecord[] {
-    return this.inventory.filter(i => i.quantity <= i.min_stock);
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  get pageNums(): number[] {
+    const nums: number[] = [];
+    const start = Math.max(1, this.page - 2);
+    const end = Math.min(this.totalPages, this.page + 2);
+    for (let i = start; i <= end; i++) nums.push(i);
+    return nums;
   }
 
-  get lowStockIds(): string {
-    return this.lowStock.map(i => i.product_id).join(', ');
-  }
-
-  constructor(private invSvc: InventoryService, private prodSvc: ProductService) {}
+  constructor(private invSvc: InventoryService) {}
 
   ngOnInit() {
-    this.loading = true;
-    this.prodSvc.getProducts().subscribe({ next: (p) => this.products = p });
-    this.invSvc.getInventory().subscribe({
-      next: (data) => { this.inventory = data; this.loading = false; },
-      error: () => this.loading = false
+    this.loadLowStockAlert();
+    this.load();
+  }
+
+  loadLowStockAlert() {
+    this.invSvc.getInventory({ page: 1, pageSize: 100, lowStock: true }).subscribe({
+      next: (data) => { this.lowStockNames = data.items.map(i => i.product_name); }
     });
   }
 
-  productName(id: string): string {
-    return this.products.find(p => p.id === id)?.name || id;
+  load() {
+    this.loading = true;
+    this.invSvc.getInventory({ page: this.page, pageSize: this.pageSize, search: this.search, lowStock: this.filterLowStock }).subscribe({
+      next: (data) => {
+        this.inventory = data.items;
+        this.total = data.total;
+        this.totalPages = data.total_pages;
+        this.loading = false;
+      },
+      error: () => { this.loading = false; }
+    });
   }
 
-  startEdit(item: InventoryRecord) {
+  onSearchChange() {
+    if (this.searchTimer) clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => { this.page = 1; this.load(); }, 400);
+  }
+
+  toggleLowStock() {
+    this.filterLowStock = !this.filterLowStock;
+    this.page = 1;
+    this.load();
+  }
+
+  goToPage(p: number) {
+    if (p < 1 || p > this.totalPages || p === this.page) return;
+    this.page = p;
+    this.load();
+  }
+
+  onPageSizeChange() { this.page = 1; this.load(); }
+
+  startEdit(item: InventoryWithName) {
     this.editingId = item.id;
     this.editQty = item.quantity;
     this.editMinStock = item.min_stock;
   }
 
-  saveEdit(item: InventoryRecord) {
+  saveEdit(item: InventoryWithName) {
     this.invSvc.updateInventory(item.id, { quantity: this.editQty, min_stock: this.editMinStock }).subscribe({
       next: (updated) => {
         item.quantity = updated.quantity;
         item.min_stock = updated.min_stock;
         item.last_updated = updated.last_updated;
         this.editingId = null;
+        this.loadLowStockAlert();
       }
     });
   }

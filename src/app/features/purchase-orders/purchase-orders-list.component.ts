@@ -15,7 +15,7 @@ interface Toast { msg: string; type: 'success' | 'error'; }
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-xl font-bold text-gray-900">Órdenes de Compra</h1>
-          <p class="text-sm text-gray-500 mt-0.5">{{ orders.length }} órdenes registradas</p>
+          <p class="text-sm text-gray-500 mt-0.5">{{ total }} órdenes registradas</p>
         </div>
         <a routerLink="/purchase-orders/new"
            class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">
@@ -28,12 +28,14 @@ interface Toast { msg: string; type: 'success' | 'error'; }
         {{ toast.msg }}
       </div>
 
+      <!-- Filtros -->
       <div class="bg-white rounded-xl border border-gray-200 p-4 flex gap-3">
         <div class="relative flex-1">
-          <input type="text" [(ngModel)]="search" placeholder="Buscar por #..."
+          <input type="text" [(ngModel)]="search" (ngModelChange)="onSearchChange()"
+            placeholder="Buscar por #..."
             class="w-full pl-4 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
         </div>
-        <select [(ngModel)]="filterStatus"
+        <select [(ngModel)]="filterStatus" (ngModelChange)="onFilterChange()"
           class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="">Todos los estados</option>
           <option value="draft">Borrador</option>
@@ -61,7 +63,7 @@ interface Toast { msg: string; type: 'success' | 'error'; }
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <ng-container *ngFor="let o of filtered">
+            <ng-container *ngFor="let o of orders">
               <tr class="hover:bg-gray-50 transition-colors">
                 <td class="px-4 py-3 font-mono font-medium text-gray-900 text-xs">#{{ o.id }}</td>
                 <td class="px-4 py-3 text-gray-700">Proveedor #{{ o.supplier_id }}</td>
@@ -121,11 +123,38 @@ interface Toast { msg: string; type: 'success' | 'error'; }
               </tr>
             </ng-container>
 
-            <tr *ngIf="filtered.length === 0">
+            <tr *ngIf="orders.length === 0">
               <td colspan="7" class="px-4 py-12 text-center text-gray-400 text-sm">No se encontraron órdenes de compra</td>
             </tr>
           </tbody>
         </table>
+
+        <!-- Pagination -->
+        <div class="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+          <span class="text-xs text-gray-500">{{ total }} resultados · página {{ page }} de {{ totalPages }}</span>
+          <div class="flex items-center gap-1">
+            <button (click)="goToPage(1)" [disabled]="page === 1"
+              class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-200 text-xs hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">«</button>
+            <button (click)="goToPage(page - 1)" [disabled]="page === 1"
+              class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-200 text-xs hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">‹</button>
+            <button *ngFor="let n of pageNums" (click)="goToPage(n)"
+              [class]="n === page
+                ? 'w-7 h-7 flex items-center justify-center rounded-md bg-blue-600 text-white text-xs font-semibold'
+                : 'w-7 h-7 flex items-center justify-center rounded-md border border-gray-200 text-xs hover:bg-gray-50'">
+              {{ n }}
+            </button>
+            <button (click)="goToPage(page + 1)" [disabled]="page === totalPages"
+              class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-200 text-xs hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">›</button>
+            <button (click)="goToPage(totalPages)" [disabled]="page === totalPages"
+              class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-200 text-xs hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">»</button>
+          </div>
+          <select [(ngModel)]="pageSize" (ngModelChange)="onPageSizeChange()"
+            class="px-2 py-1 border border-gray-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option [value]="10">10 / pág.</option>
+            <option [value]="20">20 / pág.</option>
+            <option [value]="50">50 / pág.</option>
+          </select>
+        </div>
       </div>
     </div>
   `
@@ -135,25 +164,53 @@ export class PurchaseOrdersListComponent implements OnInit {
   loading = false;
   busy: number | null = null;
   expandedId: number | null = null;
-  search = '';
-  filterStatus = '';
   toast: Toast | null = null;
 
-  get filtered(): PurchaseOrder[] {
-    let list = this.orders;
-    if (this.search) list = list.filter(o => String(o.id).includes(this.search));
-    if (this.filterStatus) list = list.filter(o => o.status === this.filterStatus);
-    return list;
+  search = '';
+  filterStatus = '';
+  page = 1;
+  pageSize = 20;
+  total = 0;
+  totalPages = 1;
+
+  get pageNums(): number[] {
+    const nums: number[] = [];
+    for (let i = Math.max(1, this.page - 2); i <= Math.min(this.totalPages, this.page + 2); i++) {
+      nums.push(i);
+    }
+    return nums;
   }
 
   constructor(private svc: OrdersService) {}
 
-  ngOnInit() {
+  ngOnInit() { this.load(); }
+
+  load() {
     this.loading = true;
-    this.svc.getPurchaseOrders().subscribe({
-      next: d => { this.orders = d; this.loading = false; },
+    this.svc.getPurchaseOrders({ page: this.page, pageSize: this.pageSize, search: this.search, status: this.filterStatus }).subscribe({
+      next: r => {
+        this.orders = r.items;
+        this.total = r.total;
+        this.totalPages = r.total_pages;
+        this.loading = false;
+      },
       error: () => { this.loading = false; },
     });
+  }
+
+  goToPage(p: number) {
+    if (p < 1 || p > this.totalPages || p === this.page) return;
+    this.page = p;
+    this.load();
+  }
+
+  onPageSizeChange() { this.page = 1; this.load(); }
+  onFilterChange()   { this.page = 1; this.load(); }
+
+  private searchTimer?: ReturnType<typeof setTimeout>;
+  onSearchChange() {
+    clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => { this.page = 1; this.load(); }, 400);
   }
 
   toggleDetail(id: number) {

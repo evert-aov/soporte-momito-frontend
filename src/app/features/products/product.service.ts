@@ -1,7 +1,9 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
+import { Paginated } from '../../core/services/orders.service';
 
 export interface Product {
   id: string;
@@ -21,14 +23,30 @@ export interface Product {
   supplier_taxes_id?: number;
 }
 
+export interface ProductPageParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  lowStock?: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProductService {
   private apiUrl = `${environment.apiUrl}/products`;
 
   constructor(private http: HttpClient) {}
 
-  getProducts(): Observable<Product[]> {
-    return this.http.get<Product[]>(this.apiUrl);
+  getProducts(p: ProductPageParams = {}): Observable<Paginated<Product>> {
+    let params = new HttpParams()
+      .set('page', p.page ?? 1)
+      .set('page_size', p.pageSize ?? 20)
+      .set('search', p.search ?? '');
+    if (p.lowStock) params = params.set('low_stock', 'true');
+    return this.http.get<Paginated<Product>>(this.apiUrl, { params });
+  }
+
+  getAllProducts(): Observable<Product[]> {
+    return this.getProducts({ page: 1, pageSize: 500 }).pipe(map(r => r.items));
   }
 
   getProduct(id: string): Observable<Product> {

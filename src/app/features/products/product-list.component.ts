@@ -15,7 +15,7 @@ import { ProductService, Product } from './product.service';
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-xl font-bold text-gray-900">Productos</h1>
-          <p class="text-sm text-gray-500 mt-0.5">{{ products.length }} productos en el catálogo</p>
+          <p class="text-sm text-gray-500 mt-0.5">{{ total }} productos en el catálogo</p>
         </div>
         <a routerLink="/products/new"
            class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors">
@@ -23,17 +23,25 @@ import { ProductService, Product } from './product.service';
         </a>
       </div>
 
-      <!-- Search -->
-      <div class="bg-white rounded-xl border border-gray-200 p-4">
-        <div class="relative">
+      <!-- Filters -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-center gap-3">
+        <div class="relative flex-1 min-w-48">
           <ng-icon name="heroMagnifyingGlass" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size="16" />
           <input
             type="text"
             [(ngModel)]="search"
+            (ngModelChange)="onSearchChange()"
             placeholder="Buscar por nombre o código..."
             class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+        <button (click)="toggleLowStock()"
+          [class]="lowStock
+            ? 'inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-amber-100 text-amber-700 border border-amber-300'
+            : 'inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'">
+          <ng-icon name="heroExclamationTriangle" size="14" />
+          Stock bajo
+        </button>
       </div>
 
       <!-- Loading -->
@@ -61,7 +69,7 @@ import { ProductService, Product } from './product.service';
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <tr *ngFor="let p of filtered" class="hover:bg-gray-50 transition-colors">
+            <tr *ngFor="let p of products" class="hover:bg-gray-50 transition-colors">
               <td class="px-4 py-3 text-gray-500 font-mono text-xs">{{ p.default_code || p.id }}</td>
               <td class="px-4 py-3">
                 <p class="font-medium text-gray-900">{{ p.name }}</p>
@@ -95,7 +103,7 @@ import { ProductService, Product } from './product.service';
                 </div>
               </td>
             </tr>
-            <tr *ngIf="filtered.length === 0">
+            <tr *ngIf="products.length === 0">
               <td colspan="7" class="px-4 py-12 text-center">
                 <ng-icon name="heroCube" class="text-gray-300 mx-auto mb-2" size="32" />
                 <p class="text-gray-400 text-sm">No se encontraron productos</p>
@@ -103,6 +111,36 @@ import { ProductService, Product } from './product.service';
             </tr>
           </tbody>
         </table>
+
+        <!-- Pagination -->
+        <div class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+          <div class="flex items-center gap-2 text-sm text-gray-500">
+            <span>Filas:</span>
+            <select [(ngModel)]="pageSize" (ngModelChange)="onPageSizeChange()"
+              class="border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+              <option [ngValue]="10">10</option>
+              <option [ngValue]="20">20</option>
+              <option [ngValue]="50">50</option>
+            </select>
+            <span>de {{ total }}</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button (click)="goToPage(1)" [disabled]="page === 1"
+              class="px-2 py-1 rounded text-sm disabled:opacity-40 hover:bg-gray-200">«</button>
+            <button (click)="goToPage(page - 1)" [disabled]="page === 1"
+              class="px-2 py-1 rounded text-sm disabled:opacity-40 hover:bg-gray-200">‹</button>
+            <button *ngFor="let n of pageNums" (click)="goToPage(n)"
+              [class]="n === page
+                ? 'px-3 py-1 rounded text-sm bg-blue-600 text-white font-semibold'
+                : 'px-3 py-1 rounded text-sm hover:bg-gray-200 text-gray-700'">
+              {{ n }}
+            </button>
+            <button (click)="goToPage(page + 1)" [disabled]="page === totalPages"
+              class="px-2 py-1 rounded text-sm disabled:opacity-40 hover:bg-gray-200">›</button>
+            <button (click)="goToPage(totalPages)" [disabled]="page === totalPages"
+              class="px-2 py-1 rounded text-sm disabled:opacity-40 hover:bg-gray-200">»</button>
+          </div>
+        </div>
       </div>
     </div>
   `
@@ -112,14 +150,20 @@ export class ProductListComponent implements OnInit {
   loading = false;
   error = '';
   search = '';
+  lowStock = false;
+  page = 1;
+  pageSize = 20;
+  total = 0;
+  totalPages = 1;
 
-  get filtered(): Product[] {
-    const q = this.search.toLowerCase();
-    if (!q) return this.products;
-    return this.products.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      (p.default_code || '').toLowerCase().includes(q)
-    );
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  get pageNums(): number[] {
+    const nums: number[] = [];
+    const start = Math.max(1, this.page - 2);
+    const end = Math.min(this.totalPages, this.page + 2);
+    for (let i = start; i <= end; i++) nums.push(i);
+    return nums;
   }
 
   constructor(private svc: ProductService) {}
@@ -128,11 +172,35 @@ export class ProductListComponent implements OnInit {
 
   load() {
     this.loading = true;
-    this.svc.getProducts().subscribe({
-      next: (data) => { this.products = data; this.loading = false; },
+    this.svc.getProducts({ page: this.page, pageSize: this.pageSize, search: this.search, lowStock: this.lowStock }).subscribe({
+      next: (data) => {
+        this.products = data.items;
+        this.total = data.total;
+        this.totalPages = data.total_pages;
+        this.loading = false;
+      },
       error: () => { this.error = 'Error al cargar productos'; this.loading = false; }
     });
   }
+
+  onSearchChange() {
+    if (this.searchTimer) clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => { this.page = 1; this.load(); }, 400);
+  }
+
+  toggleLowStock() {
+    this.lowStock = !this.lowStock;
+    this.page = 1;
+    this.load();
+  }
+
+  goToPage(p: number) {
+    if (p < 1 || p > this.totalPages || p === this.page) return;
+    this.page = p;
+    this.load();
+  }
+
+  onPageSizeChange() { this.page = 1; this.load(); }
 
   delete(id: string) {
     if (!confirm('¿Eliminar este producto?')) return;

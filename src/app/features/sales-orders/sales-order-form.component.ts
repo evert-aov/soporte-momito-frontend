@@ -161,7 +161,7 @@ export class SalesOrderFormComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.prodSvc.getProducts().subscribe({ next: (p) => this.products = p });
+    this.prodSvc.getAllProducts().subscribe({ next: (p) => this.products = p });
     this.http.get<Customer[]>(`${environment.apiUrl}/customers/`).subscribe({
       next: (c) => this.customers = c,
       error: () => {}

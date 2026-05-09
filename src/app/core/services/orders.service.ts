@@ -1,7 +1,23 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface PageParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  status?: string;
+  channel?: string;
+}
 
 export interface SalesOrderLine {
   id?: number;
@@ -53,8 +69,14 @@ export class OrdersService {
   constructor(private http: HttpClient) {}
 
   // ── Sales Orders ────────────────────────────────────────────────────────────
-  getSalesOrders(): Observable<SalesOrder[]> {
-    return this.http.get<SalesOrder[]>(`${this.base}/sales-orders/`);
+  getSalesOrders(p: PageParams = {}): Observable<Paginated<SalesOrder>> {
+    const params = new HttpParams()
+      .set('page', p.page ?? 1)
+      .set('page_size', p.pageSize ?? 20)
+      .set('search', p.search ?? '')
+      .set('status', p.status ?? '')
+      .set('channel', p.channel ?? '');
+    return this.http.get<Paginated<SalesOrder>>(`${this.base}/sales-orders/`, { params });
   }
   getSalesOrder(id: number): Observable<SalesOrder> {
     return this.http.get<SalesOrder>(`${this.base}/sales-orders/${id}`);
@@ -76,8 +98,13 @@ export class OrdersService {
   }
 
   // ── Purchase Orders ─────────────────────────────────────────────────────────
-  getPurchaseOrders(): Observable<PurchaseOrder[]> {
-    return this.http.get<PurchaseOrder[]>(`${this.base}/purchase-orders/`);
+  getPurchaseOrders(p: PageParams = {}): Observable<Paginated<PurchaseOrder>> {
+    const params = new HttpParams()
+      .set('page', p.page ?? 1)
+      .set('page_size', p.pageSize ?? 20)
+      .set('search', p.search ?? '')
+      .set('status', p.status ?? '');
+    return this.http.get<Paginated<PurchaseOrder>>(`${this.base}/purchase-orders/`, { params });
   }
   getPurchaseOrder(id: number): Observable<PurchaseOrder> {
     return this.http.get<PurchaseOrder>(`${this.base}/purchase-orders/${id}`);

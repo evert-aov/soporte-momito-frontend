@@ -125,7 +125,7 @@ export class StoreComponent implements OnInit {
 
   ngOnInit() {
     this.loading = true;
-    this.productSvc.getProducts().subscribe({
+    this.productSvc.getAllProducts().subscribe({
       next: p => { this.products = p; this.loading = false; },
       error: () => { this.loading = false; }
     });
